@@ -323,7 +323,7 @@ int main() {
 	printf("================================================\n\n");
 	printf("Connecting to OpenSky Network API...\n\n");
 
-	Matrix *screen = create_square_matrix(40);
+	Matrix *screen = create_square_matrix(120);
 
 	while(1) {
 		Aircraft *aircraft_list = NULL;
@@ -356,6 +356,11 @@ int main() {
 
 				int altitude_ft = (int)(ac->altitude * 3.28084);  // meters to feet
 				int speed_kts = (int)(ac->velocity * 1.94384);    // m/s to knots
+
+				// Filter: only display aircraft above 60 knots
+				if(speed_kts <= 60) {
+					continue;
+				}
 
 				display_symbol(screen, screen_x, screen_y);
 				display_slash(screen, screen_x, screen_y);
