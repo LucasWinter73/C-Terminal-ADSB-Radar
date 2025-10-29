@@ -6,6 +6,7 @@
 #include <curl/curl.h>
 #include <jansson.h>
 #include <unistd.h>
+#include <time.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -170,12 +171,14 @@ void sonar_sweep_update(Matrix *dest, Matrix *source) {
 	int center_x = dest->width / 2;
 	int center_y = dest->height / 2;
 	
+	// DON'T clear the destination - keep old data until sonar passes over it
+	
 	// Maximum radius to cover the entire screen
 	int max_radius = (int)sqrt(center_x * center_x + center_y * center_y) + 1;
 	
 	// Number of angle steps for a full 360 degree rotation
-	int num_angles = 360;
-	int usleep_per_angle = 28000; // Time per angle step (about 10 seconds for full sweep)
+	int num_angles = 720;  // Smooth sweep
+	int usleep_per_angle = 7000; // About 10 seconds for full sweep (twice as fast: 720 * 7000 = 10.08 seconds)
 	
 	// Sweep through all angles
 	for (int angle_step = 0; angle_step < num_angles; angle_step++) {
@@ -187,7 +190,7 @@ void sonar_sweep_update(Matrix *dest, Matrix *source) {
 			int x = center_x + (int)(radius * cos(theta));
 			int y = center_y + (int)(radius * sin(theta));
 			
-			// Copy this pixel from source to destination
+			// Copy this pixel from source to destination (overwriting old data)
 			if (x >= 0 && x < dest->width && y >= 0 && y < dest->height) {
 				dest->data[y][x] = source->data[y][x];
 			}
@@ -373,64 +376,101 @@ int main() {
 	
 	// Initialize screen with spaces
 	clear_matrix(screen);
+	clear_matrix(temp_screen);
+	
+	// Sonar state
+	int center_x = screen->width / 2;
+	int center_y = screen->height / 2;
+	int max_radius = (int)sqrt(center_x * center_x + center_y * center_y) + 1;
+	int num_angles = 720;
+	int current_angle = 0;
+	
+	time_t last_fetch_time = 0;
+	int fetch_interval = 10; // Fetch data every 10 seconds
 
 	while(1) {
-		Aircraft *aircraft_list = NULL;
-		int aircraft_count = 0;
+		time_t current_time = time(NULL);
+		
+		// Check if it's time to fetch new data
+		if (current_time - last_fetch_time >= fetch_interval) {
+			Aircraft *aircraft_list = NULL;
+			int aircraft_count = 0;
 
-		if(fetch_aircraft_data(&aircraft_list, &aircraft_count) == 0) {
-			clear_matrix(temp_screen);
+			if(fetch_aircraft_data(&aircraft_list, &aircraft_count) == 0) {
+				clear_matrix(temp_screen);
 
-			// Display title at top
-			char title[100];
-			snprintf(title, sizeof(title), "LSZH - Aircraft within %.0fnm - Count: %d", RANGE_NM, aircraft_count);
-			for(int i = 0; title[i] != '\0' && i < temp_screen->width; i++) {
-				temp_screen->data[0][i] = title[i];
-			}
-
-			// Draw center marker for LSZH
-			int center_x = temp_screen->width / 4;
-			int center_y = temp_screen->height / 2;
-			if(center_y >= 0 && center_y < temp_screen->height && center_x * 2 < temp_screen->width) {
-				temp_screen->data[center_y][center_x * 2] = '+';
-			}
-
-			// Display each aircraft
-			for(int i = 0; i < aircraft_count; i++) {
-				Aircraft *ac = &aircraft_list[i];
-
-				int screen_x, screen_y;
-				latlon_to_screen(ac->latitude, ac->longitude, &screen_x, &screen_y, 
-				                temp_screen->width, temp_screen->height);
-
-				int altitude_ft = (int)(ac->altitude * 3.28084);  // meters to feet
-				int speed_kts = (int)(ac->velocity * 1.94384);    // m/s to knots
-
-				// Filter: only display aircraft above 60 knots
-				if(speed_kts <= 60) {
-					continue;
+				// Display title at top
+				char title[100];
+				snprintf(title, sizeof(title), "LSZH - Aircraft within %.0fnm - Count: %d", RANGE_NM, aircraft_count);
+				for(int i = 0; title[i] != '\0' && i < temp_screen->width; i++) {
+					temp_screen->data[0][i] = title[i];
 				}
 
-				display_symbol(temp_screen, screen_x, screen_y);
-				display_slash(temp_screen, screen_x, screen_y);
-				display_info(temp_screen, screen_x, screen_y, ac->callsign, altitude_ft, speed_kts, ac->distance);
+				// Draw center marker for LSZH
+				int center_x_marker = temp_screen->width / 4;
+				int center_y_marker = temp_screen->height / 2;
+				if(center_y_marker >= 0 && center_y_marker < temp_screen->height && center_x_marker * 2 < temp_screen->width) {
+					temp_screen->data[center_y_marker][center_x_marker * 2] = '+';
+				}
+
+				// Display each aircraft
+				for(int i = 0; i < aircraft_count; i++) {
+					Aircraft *ac = &aircraft_list[i];
+
+					int screen_x, screen_y;
+					latlon_to_screen(ac->latitude, ac->longitude, &screen_x, &screen_y, 
+					                temp_screen->width, temp_screen->height);
+
+					int altitude_ft = (int)(ac->altitude * 3.28084);  // meters to feet
+					int speed_kts = (int)(ac->velocity * 1.94384);    // m/s to knots
+
+					// Filter: only display aircraft above 60 knots
+					if(altitude_ft <= 1800 || speed_kts <= 60) {
+						continue;
+					}
+
+					display_symbol(temp_screen, screen_x, screen_y);
+					display_slash(temp_screen, screen_x, screen_y);
+					display_info(temp_screen, screen_x, screen_y, ac->callsign, altitude_ft, speed_kts, ac->distance);
+				}
+
+				free(aircraft_list);
 			}
-
-			// Update display with sonar sweep effect
-			sonar_sweep_update(screen, temp_screen);
 			
-			printf("\nLast updated: ");
-			fflush(stdout);
-			int ret = system("date '+%H:%M:%S'");
-			(void)ret;  // Suppress unused result warning
-
-			free(aircraft_list);
-		} else {
-			printf("Failed to fetch aircraft data. Retrying...\n");
+			last_fetch_time = current_time;
 		}
-
-		// Update every 10 seconds (OpenSky rate limit is ~10 seconds)
-		sleep(10);
+		
+		// Perform one sonar sweep step
+		double theta = (current_angle * 2 * M_PI) / num_angles;
+		
+		// For this angle, update all radii from center to edge
+		for (int radius = 0; radius <= max_radius; radius++) {
+			// Calculate the point at this radius and angle
+			int x = center_x + (int)(radius * cos(theta));
+			int y = center_y + (int)(radius * sin(theta));
+			
+			// Copy this pixel from source to destination (overwriting old data)
+			if (x >= 0 && x < screen->width && y >= 0 && y < screen->height) {
+				screen->data[y][x] = temp_screen->data[y][x];
+			}
+		}
+		
+		// Print updated display
+		int ret = system("clear");
+		(void)ret;
+		for (int i = 0; i < screen->height; i++) {
+			for (int j = 0; j < screen->width; j++) {
+				printf("%c", screen->data[i][j]);
+			}
+			printf("\n");
+		}
+		fflush(stdout);
+		
+		// Advance to next angle
+		current_angle = (current_angle + 1) % num_angles;
+		
+		// Sleep between angle steps (14ms for ~10 second full rotation)
+		usleep(7000);
 	}
 
 	free_matrix(screen);
