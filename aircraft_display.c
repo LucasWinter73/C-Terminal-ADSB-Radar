@@ -164,6 +164,51 @@ void clear_matrix(Matrix *matrix) {
 	}
 }
 
+// Sonar sweep update - progressively reveals the source matrix with a sweeping effect
+void sonar_sweep_update(Matrix *dest, Matrix *source) {
+	// The actual center in the matrix is at width/2, height/2
+	int center_x = dest->width / 2;
+	int center_y = dest->height / 2;
+	
+	// Maximum radius to cover the entire screen
+	int max_radius = (int)sqrt(center_x * center_x + center_y * center_y) + 1;
+	
+	// Number of angle steps for a full 360 degree rotation
+	int num_angles = 360;
+	int usleep_per_angle = 28000; // Time per angle step (about 10 seconds for full sweep)
+	
+	// Sweep through all angles
+	for (int angle_step = 0; angle_step < num_angles; angle_step++) {
+		double theta = (angle_step * 2 * M_PI) / num_angles;
+		
+		// For this angle, update all radii from center to edge
+		for (int radius = 0; radius <= max_radius; radius++) {
+			// Calculate the point at this radius and angle
+			int x = center_x + (int)(radius * cos(theta));
+			int y = center_y + (int)(radius * sin(theta));
+			
+			// Copy this pixel from source to destination
+			if (x >= 0 && x < dest->width && y >= 0 && y < dest->height) {
+				dest->data[y][x] = source->data[y][x];
+			}
+		}
+		
+		// Print updated display after each angle step
+		int ret = system("clear");
+		(void)ret;
+		for (int i = 0; i < dest->height; i++) {
+			for (int j = 0; j < dest->width; j++) {
+				printf("%c", dest->data[i][j]);
+			}
+			printf("\n");
+		}
+		fflush(stdout);
+		
+		usleep(usleep_per_angle);
+	}
+}
+
+
 // Print matrix without borders
 void print_matrix(Matrix *matrix) {
 	int ret = system("clear");
@@ -324,26 +369,30 @@ int main() {
 	printf("Connecting to OpenSky Network API...\n\n");
 
 	Matrix *screen = create_square_matrix(120);
+	Matrix *temp_screen = create_square_matrix(120);  // Temporary buffer for new data
+	
+	// Initialize screen with spaces
+	clear_matrix(screen);
 
 	while(1) {
 		Aircraft *aircraft_list = NULL;
 		int aircraft_count = 0;
 
 		if(fetch_aircraft_data(&aircraft_list, &aircraft_count) == 0) {
-			clear_matrix(screen);
+			clear_matrix(temp_screen);
 
 			// Display title at top
 			char title[100];
 			snprintf(title, sizeof(title), "LSZH - Aircraft within %.0fnm - Count: %d", RANGE_NM, aircraft_count);
-			for(int i = 0; title[i] != '\0' && i < screen->width; i++) {
-				screen->data[0][i] = title[i];
+			for(int i = 0; title[i] != '\0' && i < temp_screen->width; i++) {
+				temp_screen->data[0][i] = title[i];
 			}
 
 			// Draw center marker for LSZH
-			int center_x = screen->width / 4;
-			int center_y = screen->height / 2;
-			if(center_y >= 0 && center_y < screen->height && center_x * 2 < screen->width) {
-				screen->data[center_y][center_x * 2] = '+';
+			int center_x = temp_screen->width / 4;
+			int center_y = temp_screen->height / 2;
+			if(center_y >= 0 && center_y < temp_screen->height && center_x * 2 < temp_screen->width) {
+				temp_screen->data[center_y][center_x * 2] = '+';
 			}
 
 			// Display each aircraft
@@ -352,7 +401,7 @@ int main() {
 
 				int screen_x, screen_y;
 				latlon_to_screen(ac->latitude, ac->longitude, &screen_x, &screen_y, 
-				                screen->width, screen->height);
+				                temp_screen->width, temp_screen->height);
 
 				int altitude_ft = (int)(ac->altitude * 3.28084);  // meters to feet
 				int speed_kts = (int)(ac->velocity * 1.94384);    // m/s to knots
@@ -362,12 +411,14 @@ int main() {
 					continue;
 				}
 
-				display_symbol(screen, screen_x, screen_y);
-				display_slash(screen, screen_x, screen_y);
-				display_info(screen, screen_x, screen_y, ac->callsign, altitude_ft, speed_kts, ac->distance);
+				display_symbol(temp_screen, screen_x, screen_y);
+				display_slash(temp_screen, screen_x, screen_y);
+				display_info(temp_screen, screen_x, screen_y, ac->callsign, altitude_ft, speed_kts, ac->distance);
 			}
 
-			print_matrix(screen);
+			// Update display with sonar sweep effect
+			sonar_sweep_update(screen, temp_screen);
+			
 			printf("\nLast updated: ");
 			fflush(stdout);
 			int ret = system("date '+%H:%M:%S'");
@@ -383,5 +434,6 @@ int main() {
 	}
 
 	free_matrix(screen);
+	free_matrix(temp_screen);
 	return 0;
 }
