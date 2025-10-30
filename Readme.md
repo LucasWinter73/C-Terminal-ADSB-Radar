@@ -13,7 +13,7 @@ Real-time aircraft tracking display showing all aircraft within 20 nautical mile
   - Distance from LSZH in nautical miles
 - Geographic positioning on screen
 - Auto-refresh every 10 seconds
-- Tab-indented source code
+
 
 ## Requirements
 
@@ -59,7 +59,7 @@ gcc -Wall -Wextra -std=c11 -O2 -o aircraft_display aircraft_display.c -lcurl -lj
 
 The display will continuously update, showing:
 - Aircraft positions relative to LSZH (marked with '+')
-- Each aircraft marked with 'X' and a '/' leader line
+- Each aircraft marked with 'X'
 - Aircraft information (callsign, altitude, speed, distance)
 - Total aircraft count in the area
 
@@ -97,8 +97,6 @@ This program uses the free OpenSky Network API which:
 
 - The display updates every 10 seconds to respect API rate limits
 - Aircraft without valid position data are filtered out
-- All indentation in the source code uses tabs
-- Screen coordinates are calculated using the Haversine formula for accurate distance
 
 ## Troubleshooting
 
