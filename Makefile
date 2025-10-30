@@ -1,14 +1,22 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -O2 -I/opt/homebrew/include
-LDFLAGS = -L/opt/homebrew/lib -lcurl -ljansson -lm
+CFLAGS = -Wall -O2 -D_GNU_SOURCE
+LIBS = -lcurl -ljansson -lm
 
-TARGET = aircraft_display
-SRC = aircraft_display.c
+# macOS Homebrew paths (for Apple Silicon and Intel)
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+    BREW_PREFIX := $(shell brew --prefix)
+    CFLAGS += -I$(BREW_PREFIX)/include
+    LIBS += -L$(BREW_PREFIX)/lib
+endif
+
+TARGET = aircraft_display_radar
+SOURCE = aircraft_display_with_radar.c
 
 all: $(TARGET)
 
-$(TARGET): $(SRC)
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) $(LDFLAGS)
+$(TARGET): $(SOURCE)
+	$(CC) $(CFLAGS) $(SOURCE) $(LIBS) -o $(TARGET)
 
 clean:
 	rm -f $(TARGET)
